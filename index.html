@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>AI面接官テスト</title>
+</head>
+<body>
+    <h1>AI面接官テスト</h1>
+    <button id="start">面接開始</button>
+    <button id="stop">終了</button>
+    <p id="status">ステータス: 準備中...</p>
+
+    <script type="module">
+        // esm.sh を使うことで、npmパッケージをブラウザで直接 import 可能な形式に変換して読み込みます
+        import Vapi from 'https://esm.sh/@vapi-ai/web';
+
+        const status = document.getElementById('status');
+        const startBtn = document.getElementById('start');
+        const stopBtn = document.getElementById('stop');
+
+        // Credentials (自分のものに書き換えてください)
+        const PUBLIC_KEY = 'a24e7884-15fe-465f-8441-29dd14e80bb6';
+        const ASSISTANT_ID = 'bdf810e4-cc98-49b1-b3f4-c58503f056f9';
+
+        // vapi.start の引数に入れる例
+        const assistantOverrides = {
+            model: {
+                tools: [{
+                    type: "function",
+                    name: "finish_interview",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            summary: { type: "string", description: "面接全体の総括内容" },
+                            score: { type: "number", description: "100点満点のスコア" }
+                        },
+                        required: ["summary", "score"]
+                    }
+                }]
+            }
+        };
+        let vapi;
+
+        try {
+            vapi = new Vapi(PUBLIC_KEY);
+            status.innerText = "ステータス: 準備完了";
+            console.log("Vapi instance created:", vapi);
+
+            // イベントリスナー登録
+            vapi.on('call-start', () => {
+                status.innerText = "ステータス: 通話中 (喋ってみてください)";
+                console.log("Call started");
+            });
+
+            vapi.on('call-end', () => {
+                status.innerText = "ステータス: 終了";
+                console.log("Call ended");
+            });
+
+            vapi.on('error', (e) => {
+                console.error("Vapi Error:", e);
+                status.innerText = "エラー: " + (e.message || "接続エラー");
+            });
+
+            const transcriptContainer = document.getElementById('transcript-container');
+
+            // 現在アクティブ（更新中）のメッセージ要素を保持する変数
+            let activeMessageElement = null;
+
+            vapi.on('message', (message) => {
+                if (message.type === 'transcript') {
+                    const role = message.role;
+                    const text = message.transcript;
+                    const isFinal = message.transcriptType === 'final';
+
+                    // 新しい発話の開始、または役割が変わった場合に要素を作成
+                    if (!activeMessageElement || activeMessageElement.dataset.role !== role) {
+                        activeMessageElement = document.createElement('div');
+                        activeMessageElement.dataset.role = role;
+                        activeMessageElement.style.marginBottom = '10px';
+                        activeMessageElement.style.padding = '8px';
+                        activeMessageElement.style.borderRadius = '5px';
+                        
+                        // ロールに応じたスタイリング
+                        if (role === 'assistant') {
+                            activeMessageElement.style.backgroundColor = '#f0f0f0';
+                            activeMessageElement.innerHTML = `<strong>AI:</strong> <span class="content"></span>`;
+                        } else {
+                            activeMessageElement.style.backgroundColor = '#e3f2fd';
+                            activeMessageElement.innerHTML = `<strong>あなた:</strong> <span class="content"></span>`;
+                        }
+                        
+                        transcriptContainer.appendChild(activeMessageElement);
+                        // 常に最新のメッセージが見えるようにスクロール
+                        transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+                    }
+
+                    // テキストを更新
+                    activeMessageElement.querySelector('.content').innerText = text;
+
+                    // 確定（Final）したら、次の発話のために activeMessageElement をリセット
+                    if (isFinal) {
+                        activeMessageElement.style.opacity = "1"; // 確定を視覚的に表現しても良い
+                        activeMessageElement = null; 
+                    } else {
+                        activeMessageElement.style.opacity = "0.7"; // 推測中は少し薄くする
+                    }
+                }
+            });
+
+        } catch (err) {
+            console.error("Initialization Error:", err);
+            status.innerText = "初期化失敗";
+        }
+
+        startBtn.onclick = async () => {
+            status.innerText = "ステータス: 接続中...";
+            try {
+                const assistantOverrides = {
+                    transcriber: {
+                        provider: "deepgram",
+                        model: "nova-2",
+                        language: "ja",
+                        // SDKによっては endpointing ですが、
+                        // エラーが出る場合は一旦 1000（数値）で試してください
+                        endpointing: 500 
+                    },
+                };
+                await vapi.start(ASSISTANT_ID, assistantOverrides);
+            } catch (e) {
+                console.error("Start Error:", e);
+                status.innerText = "開始失敗: " + e.message;
+            }
+        };
+
+        stopBtn.onclick = () => {
+            vapi.stop();
+        };
+        
+    </script>
+    <div id="transcript-container" style="border: 1px solid #ccc; padding: 10px; margin-top: 20px; height: 200px; overflow-y: scroll;">
+</div>
+</body>
+</html>
